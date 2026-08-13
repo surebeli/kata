@@ -1,103 +1,38 @@
 .claude-plugin/marketplace.json
-  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 12-12
-CHANGELOG.md
-  s_c587ecf7bbc3e2::t_edfd3ba65dc8d3 7-7
-  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 8-51,110-111,119-119
-  s_c587ecf7bbc3e2::t_f7bf71514bf652 52-109,112-118
-plugin/.claude-plugin/plugin.json
-  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 3-3
-plugin/scripts/lint_naive.py
-  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 31-31,82-90,92-93,102-106,110-111,238-246
-plugin.json
-  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 4-4
-SKILL.md
-  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 4-4
+  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 12
 tests/run_smoke.py
-  s_c587ecf7bbc3e2::t_5d0a47ef31461a 158-171,175-186,188-190,206-207,211-211
-  s_c587ecf7bbc3e2::t_e13ce3ff4dcfd2 172-174,187-187,191-205,208-210
-  s_c587ecf7bbc3e2::t_9e13993a40ec65 217-217,219-225
-  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 1332-1332,1334-1363,1366-1368
+  s_c587ecf7bbc3e2::t_9e13993a40ec65 217,220-225
+  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 1332,1334-1363,1366-1368
+  s_c587ecf7bbc3e2::t_5d0a47ef31461a 158-171,175-186,188-190,206-207,211
   s_c587ecf7bbc3e2::t_8dac4275738adb 4903-4977
+  s_c587ecf7bbc3e2::t_e13ce3ff4dcfd2 172-174,187,191-205,208-210
+  s_c587ecf7bbc3e2::t_58330327bf515f 226
+plugin/.claude-plugin/plugin.json
+  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 3
+SKILL.md
+  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 4
+plugin/scripts/lint_naive.py
+  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 31,82-90,92-93,102-106,110-111,238-246
+CHANGELOG.md
+  s_c587ecf7bbc3e2::t_f7bf71514bf652 52-109,112-118
+  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 8-51,110-111,119
+  s_c587ecf7bbc3e2::t_edfd3ba65dc8d3 7
+plugin.json
+  s_c587ecf7bbc3e2::t_fcaf9893a0d7b8 4
 ---
 {
   "schema_version": "authorship/3.0.0",
   "git_ai_version": "1.6.22",
   "base_commit_sha": "add426dede1de36d2d89c85f596a091797aad655",
-  "prompts": {
-    "s_c587ecf7bbc3e2::t_fcaf9893a0d7b8": {
+  "prompts": {},
+  "sessions": {
+    "s_c587ecf7bbc3e2": {
       "agent_id": {
         "tool": "claude",
         "id": "b39f5bf8-f328-41b3-b5fd-eb01a465a399",
         "model": "claude-opus-5"
       },
-      "human_author": "litianyi <litianyi@corp.netease.com>",
-      "messages": [],
-      "total_additions": 113,
-      "total_deletions": 0,
-      "accepted_lines": 113,
-      "overriden_lines": 0
-    },
-    "s_c587ecf7bbc3e2::t_5d0a47ef31461a": {
-      "agent_id": {
-        "tool": "claude",
-        "id": "b39f5bf8-f328-41b3-b5fd-eb01a465a399",
-        "model": "claude-opus-5"
-      },
-      "human_author": "litianyi <litianyi@corp.netease.com>",
-      "messages": [],
-      "total_additions": 32,
-      "total_deletions": 0,
-      "accepted_lines": 32,
-      "overriden_lines": 0
-    },
-    "s_c587ecf7bbc3e2::t_edfd3ba65dc8d3": {
-      "agent_id": {
-        "tool": "claude",
-        "id": "b39f5bf8-f328-41b3-b5fd-eb01a465a399",
-        "model": "claude-opus-5"
-      },
-      "human_author": "litianyi <litianyi@corp.netease.com>",
-      "messages": [],
-      "total_additions": 1,
-      "total_deletions": 0,
-      "accepted_lines": 1,
-      "overriden_lines": 0
-    },
-    "s_c587ecf7bbc3e2::t_f7bf71514bf652": {
-      "agent_id": null,
-      "human_author": null,
-      "messages": [],
-      "total_additions": 65,
-      "total_deletions": 0,
-      "accepted_lines": 65,
-      "overriden_lines": 0
-    },
-    "s_c587ecf7bbc3e2::t_e13ce3ff4dcfd2": {
-      "agent_id": null,
-      "human_author": null,
-      "messages": [],
-      "total_additions": 22,
-      "total_deletions": 0,
-      "accepted_lines": 22,
-      "overriden_lines": 0
-    },
-    "s_c587ecf7bbc3e2::t_9e13993a40ec65": {
-      "agent_id": null,
-      "human_author": null,
-      "messages": [],
-      "total_additions": 8,
-      "total_deletions": 0,
-      "accepted_lines": 8,
-      "overriden_lines": 0
-    },
-    "s_c587ecf7bbc3e2::t_8dac4275738adb": {
-      "agent_id": null,
-      "human_author": null,
-      "messages": [],
-      "total_additions": 75,
-      "total_deletions": 0,
-      "accepted_lines": 75,
-      "overriden_lines": 0
+      "human_author": "litianyi <litianyi@corp.netease.com>"
     }
   }
 }
