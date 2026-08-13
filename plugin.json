@@ -1,7 +1,7 @@
 {
   "$comment": "GitHub Copilot CLI plugin manifest. Located at repo root because Copilot CLI's `plugin install` searches only top-level paths (.plugin/, ., .github/plugin/, .claude-plugin/) and does not recurse into subdirectories. The canonical Claude Code manifest lives at plugin/.claude-plugin/plugin.json — Claude Code finds it through .claude-plugin/marketplace.json. Claude Code does NOT read this root-level plugin.json. Keep core metadata fields in sync with plugin/.claude-plugin/plugin.json on version bumps.",
   "name": "kata",
-  "version": "2.16.2",
+  "version": "2.16.3",
   "description": "A self-evolving knowledge system for AI-paired builders. Built on Karpathy's LLM-Wiki principle: self-closing ingest/synthesis loop + auto-dreaming + spec-history management + project-local work-loop bridge. 18 skills (init, import, ingest, search, graph, tier, digest, query, lint, config, dream, watch, sync, spec, session-ingest, mcp-server, federate, skill-create). v1.15 work-loop bridge: wiki-skill-create generates project-local skills wrapping kata's query/ingest with the project's actual work pipeline.",
   "author": {
     "name": "litianyi-007",

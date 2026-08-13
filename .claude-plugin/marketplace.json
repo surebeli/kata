@@ -9,7 +9,7 @@
       "name": "kata",
       "source": "./plugin",
       "description": "A self-evolving knowledge system for AI-paired builders, on Karpathy's LLM-Wiki principle. CORE: self-closing wiki loop (ingest → cross-link → filed-query → compounding) plus auto-dreaming (frozen pages resurface on relevance). Phase 1 (current): AI-paired engineering — compile project business semantics for agent preflight. Phase 2 (designed): team spec authoring + dispute resolution. Phase 3+: open. Builders inherit a kata, adapt it, transcend the form. 18 skills, multi-machine git sync, multi-CLI session ingest (v1.11 in flight).",
-      "version": "2.16.2",
+      "version": "2.16.3",
       "homepage": "https://github.com/litianyi-007/kata",
       "license": "MIT",
       "keywords": [

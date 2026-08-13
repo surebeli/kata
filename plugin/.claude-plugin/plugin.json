@@ -1,6 +1,6 @@
 {
   "name": "kata",
-  "version": "2.16.2",
+  "version": "2.16.3",
   "description": "A self-evolving knowledge system for AI-paired builders. Built on Karpathy's LLM-Wiki principle, the CORE is a self-closing ingest/synthesis loop + auto-dreaming that resurfaces frozen pages when their relevance returns. Phase 1 reach (current): AI-paired engineering — compile project business semantics so agents read project conventions before they write code. Phase 2 (designed): team spec authoring + dispute resolution. Builders inherit a kata, adapt it to their project, transcend the form. 18 skills (init, import, ingest, search, graph, tier, digest, query, lint, config, dream, watch, sync, spec, session-ingest, mcp-server, federate, skill-create). v1.13 SHM Phase 0+2. v1.11 session-ingest MVP. **v1.12 cross-wiki federation complete (Phase 0+1+2+3)**: kata is both MCP server + client, parallel fan-out, kata:// URI scheme with name/wiki_id forms, wiki_id identity check, federated spec preflight with cross-wiki enforcement (kata://-targeted spec_relationships now match peer candidates).",
   "author": {
     "name": "litianyi-007",

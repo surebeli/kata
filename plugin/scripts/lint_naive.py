@@ -28,6 +28,7 @@ from wiki_lib import (
     emit,
     extract_links,
     find_wiki_root,
+    is_structural_page,
     load_schema,
 )
 
@@ -78,7 +79,18 @@ def main() -> int:
         findings.extend(_check_index(root, pages))
 
     if "orphans" in checks:
+        # SCHEMA.md / index.md / log.md (and dreaming/*.md) are bookkeeping,
+        # not content — wiki-init writes all three on every wiki unconditionally,
+        # and nothing is ever supposed to [[wikilink]] *to* them, so they show
+        # zero in/out edges on every single wiki and would otherwise be
+        # reported as "orphans" 100% of the time. That's noise, not a finding.
+        # graph_query.py's `--mode orphans` already carries this exact
+        # exemption (see wiki_lib.is_structural_page() for the full
+        # rationale) — reuse it here rather than hand-rolling a second
+        # exclusion list that can independently drift out of sync.
         for p_obj in pages:
+            if is_structural_page(p_obj.path):
+                continue
             if not p_obj.in_links and not p_obj.out_links:
                 findings.append({
                     "check": "orphans", "severity": "MEDIUM",
@@ -87,9 +99,16 @@ def main() -> int:
                 })
 
     if "frontmatter" in checks:
+        # Same exemption as the orphans check above (see is_structural_page):
+        # SCHEMA.md/index.md/log.md don't carry the content-page frontmatter
+        # shape (title/type/tags/...) that SCHEMA.md's own frontmatter_fields
+        # policy is written to describe, so holding them to it is a false
+        # positive on every wiki, not a real gap.
         required = schema.get("frontmatter_fields") or []
         if isinstance(required, list) and required:
             for p_obj in pages:
+                if is_structural_page(p_obj.path):
+                    continue
                 missing = [f for f in required if f not in p_obj.frontmatter]
                 if missing:
                     findings.append({
@@ -216,7 +235,15 @@ def _check_index(root: Path, pages: list[Page]) -> list[dict]:
     text = idx.read_text(encoding="utf-8").lower()
     findings = []
     for p in pages:
-        if p.path.lower() == "index.md" or p.path.lower() == "log.md":
+        # index.md trivially can't reference itself, and log.md's own
+        # append-only entries aren't meant to be catalogued in index.md
+        # either. This used to be a two-name inline check (index.md, log.md)
+        # that — being separate from the orphans/frontmatter exemptions —
+        # simply forgot the third scaffold file, SCHEMA.md, which then
+        # false-positived as an "unindexed page" on every wiki. Now sourced
+        # from the one shared definition (see is_structural_page) so the
+        # three checks can't drift relative to each other again.
+        if is_structural_page(p.path):
             continue
         stem = Path(p.path).stem.lower()
         title = (p.title or "").lower()

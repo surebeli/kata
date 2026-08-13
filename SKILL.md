@@ -1,7 +1,7 @@
 ---
 name: kata
 description: "Kata — a self-evolving knowledge system for AI-paired builders. CORE: self-closing wiki loop + auto-dreaming on Karpathy's LLM-Wiki principle. Phase 1 (current): AI-paired engineering — compile project business semantics so agents read project conventions before they write code. Phase 2 (designed): team spec authoring + dispute resolution. 18 skills (init / import / ingest / search / graph / tier / digest / query / lint / config / dream / watch / sync / spec / session-ingest / mcp-server / federate / skill-create). **v1.13 SHM complete (Phase 0+2+3+4)**. **v1.15 work-loop bridge**: `wiki-skill-create` generates project-local skills wrapping kata's query/ingest with the project's actual work pipeline (issue-fix / feature-build / bug-debug / custom patterns); closes consult-before / file-back-after as structural default rather than discipline."
-version: 2.16.2
+version: 2.16.3
 author: litianyi-007
 license: MIT
 ---

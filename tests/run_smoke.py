@@ -155,15 +155,74 @@ def _git(cwd, *args, env=None, check=True, capture=True):
 
 
 def _windows_safe_rmtree(path):
-    """rmtree that handles Windows .git read-only files."""
+    """rmtree that survives read-only files (Windows) and permission-
+    stripped directories (POSIX) without poisoning the tree it fails on.
+
+    Two distinct recovery needs, both handled by the same handler:
+
+    - Windows: a checked-out `.git/` often has files with the read-only
+      attribute; deleting them raises PermissionError. Windows' os.chmod()
+      only inspects whether the mode has *any* write bit set to decide
+      that attribute, so OR-ing S_IWRITE into the mode clears it — extra
+      bits alongside it are harmless there.
+    - POSIX (Linux/macOS): shutil.rmtree here goes through the fd-based
+      walker (_rmtree_safe_fd), which can invoke onerror with `func`
+      bound to os.scandir/os.lstat/os.open/os.rmdir/os.unlink and `p`
+      pointing at a *directory* missing read/execute bits (e.g. left
+      behind at 0o200 by an earlier crash — see below). A naive
+      Windows-style handler (chmod then blindly retry `func(p)`) hits two
+      POSIX-only traps:
+        1. `os.chmod(p, stat.S_IWRITE)` REPLACES the entire mode.
+           S_IWRITE is 0o200 (owner write-only) — for a directory that
+           strips read+execute, leaving it *harder* to enter/list than
+           before, i.e. self-poisoning: the handler recreates the exact
+           d-w------- state it was trying to fix, and every future
+           rmtree of that path fails the same way, permanently. Fixed by
+           OR-ing the owner rwx bits into the EXISTING mode instead of
+           overwriting it, so permissions are only ever added.
+        2. Blindly retrying via `func(p)` breaks for os.open: shutil's
+           real call is `os.open(name, flags, dir_fd=topfd)`, so a bare
+           `os.open(p)` raises TypeError (missing required `flags`
+           argument) — which `except OSError` does not catch. That
+           TypeError used to escape the handler uncaught, killing the
+           entire rmtree call (and, one level up, the whole test run)
+           instead of being swallowed as a recoverable failure, with a
+           message that says nothing about the underlying permission
+           issue.
+           Supplying the missing `flags` argument only papers over the
+           crash, though — it doesn't actually delete anything, because
+           shutil's onerror is a fire-and-forget callback: it never
+           re-attempts the original `func` after onerror returns, so a
+           dirfd we open and discard here accomplishes nothing, and the
+           directory (and the run) is still stuck. So instead of trying
+           to precisely replay whichever call failed, once permissions
+           are fixed we finish the job ourselves: if `p` is a real
+           (non-symlink) directory, recursively rmtree it with this same
+           handler (so a poisoned directory nested arbitrarily deep gets
+           the same fix applied to it); otherwise unlink it. This also
+           makes the handler correct regardless of which of shutil's
+           several internal functions happened to be `func` — we no
+           longer need to know or care.
+
+    Deliberately keeps the `onerror` parameter (not the newer `onexc`,
+    which passes the exception instance directly instead of `sys.
+    exc_info()`): `onexc` was added in Python 3.12 and this suite runs on
+    Python 3.9, where `onexc` is not a valid rmtree keyword at all.
+    """
     import shutil as _sh
     import stat as _stat
 
     def _onerror(func, p, exc):
         try:
-            os.chmod(p, _stat.S_IWRITE)
-            func(p)
+            os.chmod(p, os.stat(p).st_mode | _stat.S_IRWXU)
         except OSError:
+            pass
+        try:
+            if not os.path.islink(p) and os.path.isdir(p):
+                _sh.rmtree(p, onerror=_onerror)
+            else:
+                os.unlink(p)
+        except (OSError, TypeError):
             pass
     if path.exists():
         _sh.rmtree(path, onerror=_onerror)
@@ -1270,13 +1329,43 @@ plugins:
         "---\ntitle: Missing\n---\n\n# Missing\n",
         encoding="utf-8")
     lr = run([str(SCRIPTS / "lint_naive.py"),
-              "--wiki", str(lint_dir), "--check", "links,frontmatter,index"])
+              "--wiki", str(lint_dir), "--check", "links,frontmatter,index,orphans"])
     by_check = lr["by_check"]
-    assert by_check.get("links", 0) >= 1, f"expected broken-link finding, got {lr}"
-    assert by_check.get("frontmatter", 0) >= 1, f"expected frontmatter finding, got {lr}"
+
+    def _pages(check: str) -> set:
+        return {f["page"] for f in lr["findings"] if f["check"] == check}
+
+    # Regression test for the wiki-lint scaffold-file bug fixed alongside
+    # this test (lint_naive.py's orphans/frontmatter/index checks used to
+    # treat SCHEMA.md/index.md/log.md as content pages). Before the fix,
+    # THIS EXACT fixture produced frontmatter=3 (2 spurious: SCHEMA.md,
+    # index.md; only missing-fields.md real), index=2 (SCHEMA.md spurious +
+    # missing-fields.md real), and orphans=4 (SCHEMA.md + index.md spurious
+    # on top of the 2 real orphan content pages, foo.md and
+    # missing-fields.md) — all of which satisfied the old `>= 1`
+    # lower-bound assertions without the checks having caught anything
+    # real, and orphans wasn't even in the `--check` list. Pinning exact
+    # counts AND exact page sets (not just counts) means this test goes red
+    # both if a real finding stops being caught, and if a scaffold file
+    # leaks back into a finding.
+    assert by_check == {"links": 1, "frontmatter": 1, "index": 1, "orphans": 2}, \
+        f"expected exactly links=1/frontmatter=1/index=1/orphans=2, got {by_check}"
+    assert _pages("links") == {"entities/foo.md"}, \
+        f"links should flag only foo.md's dangling [[bar]]: {lr['findings']}"
+    assert _pages("frontmatter") == {"entities/missing-fields.md"}, \
+        f"frontmatter should flag only missing-fields.md (missing 'type'): {lr['findings']}"
+    assert _pages("index") == {"entities/missing-fields.md"}, \
+        f"index should flag only missing-fields.md as unindexed: {lr['findings']}"
+    assert _pages("orphans") == {"entities/foo.md", "entities/missing-fields.md"}, \
+        f"orphans should flag exactly the 2 disconnected content pages: {lr['findings']}"
+    assert not any(f["page"] in ("SCHEMA.md", "index.md", "log.md")
+                   for f in lr["findings"]), \
+        f"scaffold file leaked into a finding: {lr['findings']}"
     print(f"  ok  lint found links={by_check.get('links',0)} "
           f"frontmatter={by_check.get('frontmatter',0)} "
-          f"index={by_check.get('index',0)}")
+          f"index={by_check.get('index',0)} "
+          f"orphans={by_check.get('orphans',0)} "
+          f"— exact pin, zero scaffold-file leakage")
 
     print("\nTest 15: digest produces activity + inventory + tier counts")
     dr = run([str(SCRIPTS / "digest.py"),
@@ -4810,6 +4899,81 @@ print(json.dumps({{
           "'38 pairs of [[wikilink]]') produces no dangling_links entry — "
           "reproduced against ~/.llm-wiki/test-harnessloop before the fix "
           "(dangling_links: {'log.md': ['wikilink']})")
+
+    print("\nTest 66: _windows_safe_rmtree recovers a self-poisoned "
+          "directory instead of crashing the whole run")
+    # Regression test for a real defect: _windows_safe_rmtree's onerror
+    # handler used to do `os.chmod(p, stat.S_IWRITE)` unconditionally on
+    # whatever path failed. S_IWRITE is 0o200 (owner write-only) — for a
+    # *directory* that REPLACES the mode and strips read+execute, i.e.
+    # the handler recreates the exact d-w------- state it was trying to
+    # clear. That state was found for real in this tree
+    # (tests/_sync/_bootstrap ended up mode d-w------- after a couple of
+    # run_smoke.py invocations): from a clean tree the suite passed
+    # 269/269, but once poisoned, every subsequent run aborted at 70/269
+    # with a bare `TypeError: open() missing required argument 'flags'
+    # (pos 2)` — not even the original PermissionError — because the
+    # handler's blind retry `func(p)` breaks for POSIX's fd-based rmtree
+    # walker (_rmtree_safe_fd), which calls onerror with func=os.open
+    # when it can't `os.open(name, flags, dir_fd=...)` a poisoned
+    # subdirectory to descend into it; `os.open(p)` with only the one
+    # argument raises that TypeError, which `except OSError` does not
+    # catch, so it escaped _onerror and killed the whole run instead of
+    # being swallowed as a recoverable failure — permanently, since the
+    # poisoning survives the crash and every later run dies the same way
+    # at the same spot.
+    #
+    # This constructs the poisoned end-state directly (mode 0o200,
+    # containing a file) rather than trying to reproduce whatever
+    # transient error first causes it — that trigger is timing/state
+    # dependent, but the handler must recover from this end-state
+    # deterministically regardless of how a directory got here.
+    poison_root = FIXTURE.parent / "_rmtree_poison"
+    poison_victim = poison_root / "victim"
+
+    def _force_clean(p):
+        """Cleanup that deliberately does NOT depend on
+        _windows_safe_rmtree (the function under test) or a bare
+        shutil.rmtree, either of which would choke on the very
+        poisoned permissions this test creates. Used both to defend
+        against a previous failed run of *this* test leaving the tree
+        poisoned, and in the `finally` below — a test that guards
+        against non-re-runnability must not itself leave the tree
+        non-re-runnable if its own assertion fails.
+        """
+        import shutil as _sh
+        import stat as _stat
+        if not p.exists():
+            return
+        for _dirpath, _dirnames, _ in os.walk(p):
+            for _d in _dirnames:
+                try:
+                    os.chmod(os.path.join(_dirpath, _d), _stat.S_IRWXU)
+                except OSError:
+                    pass
+        _sh.rmtree(p, ignore_errors=True)
+
+    _force_clean(poison_root)
+    try:
+        poison_victim.mkdir(parents=True)
+        (poison_victim / "file.txt").write_text("poisoned", encoding="utf-8")
+        import stat as _stat_for_test
+        os.chmod(poison_victim, _stat_for_test.S_IWRITE)
+        got_mode = oct(poison_victim.stat().st_mode & 0o777)
+        assert got_mode == "0o200", \
+            f"test setup failed to poison victim dir, got {got_mode}"
+
+        _windows_safe_rmtree(poison_root)  # must not raise
+
+        assert not poison_root.exists(), (
+            "_windows_safe_rmtree must actually remove a self-poisoned "
+            f"directory tree, not just avoid raising: {poison_root} "
+            "still exists")
+        print("  ok  T-rmtree-selfpoison-1: 0o200 directory containing "
+              "a file is fully removed by _windows_safe_rmtree without "
+              "raising and without leaving the tree poisoned")
+    finally:
+        _force_clean(poison_root)
 
     print("\nAll smoke tests passed.")
     return 0

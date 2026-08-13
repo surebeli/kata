@@ -4,6 +4,119 @@ All notable changes to Kata (previously `ak-wiki` — see v2.0.0 below) are
 recorded here. The plugin follows [semver](https://semver.org/) — major
 bumps signal a manifest or skill-API change.
 
+## [2.16.3] — 2026-08-13 — wiki-lint：脚手架文件假发现清零，测试断言从下界改上界；测试工具自身的 `_windows_safe_rmtree` 自我下毒修复
+
+`wiki-lint`（`lint_naive.py`）的 `orphans`、`frontmatter`、`index` 三项检查把 `wiki-init`
+在**每个**新 kata wiki 上无条件生成的三个脚手架文件（`SCHEMA.md`、`index.md`、`log.md`）当成
+内容页在查，于是每个 kata wiki、每次体检都会收到几条恒定的假阳性。在 `~/.llm-wiki/test-harnessloop`
+上实测复现：`--check all` 报 **7 条 MEDIUM，全部落在这三个脚手架文件上，26 个真实内容页零发现**
+（`page_count` 29，真实问题为 0）。
+
+### Fixed
+
+- **根因**：`discover_pages()`（`wiki_lib.py`）把三个脚手架文件当页面对象扫入 `pages`，随后
+  `lint_naive.py` 的 `orphans` 检查（原 `:81`）与 `frontmatter` 检查（原 `:89`）对 `pages` 一视
+  同仁、**零排除**；`index` 检查（`_check_index`，原 `:219`）虽然排除，但排除表本身不全——只写了
+  `index.md` 与 `log.md`，漏了 `SCHEMA.md`。三项检查各自维护自己的排除逻辑，一份不全、另两份干脆
+  没有，是"清单会过时、发现式定义不会"这条老教训在新位置的重演。
+- **修法**：三项检查统一改用 `wiki_lib.py` 里已经存在的 `is_structural_page()` /
+  `STRUCTURAL_FILENAMES`——这正是 `graph_query.py --mode orphans` 已经在用的同一份定义
+  （`lint_naive.py` 的 `orphans` 检查是那段逻辑的独立第二份实现，当初没有跟上那次修复）。排除点
+  放在**三项检查各自的判断处**，而不是收窄 `discover_pages()` 的返回值：`discover_pages()` 的调用方
+  遍布 `wiki-search`/`wiki-graph`/`wiki-query`/MCP server 等多处，`lint_naive.py` 自己的 `size`/
+  `stale` 两项检查也依赖它返回完整页面集——一份体积失控或长期未更新的 `SCHEMA.md` 仍是值得报的真实
+  信号，因此这两项检查刻意保持不变。只有 `orphans`/`frontmatter`/`index` 这三项检查所问的问题
+  （"是不是应当被交叉引用 / 携带内容页 frontmatter / 被目录收录的内容页"）对脚手架文件天然不成立。
+- **效果**：`~/.llm-wiki/test-harnessloop` 复验从 7 条 MEDIUM（全部为假）→ **0 条**。
+
+### Changed（测试）
+
+- `tests/run_smoke.py` Test 14 过去的断言是 `by_check.get("frontmatter", 0) >= 1` 一类下界。
+  它自己的 fixture 其实已经复现了这个 bug——实跑得到 `frontmatter=3`（`SCHEMA.md`、`index.md`
+  两条假的，外加 `entities/missing-fields.md` 一条真的），下界断言分不清"抓到了真的"和"抓到两条
+  假的外加一条真的"，这个测试对这个 bug **结构性地不可能变红**。`orphans` 检查更是压根没被列进
+  这个测试的 `--check` 参数，`index=2` 算出来也从未断言。
+  现在四项检查（新增 `orphans`）改成对 `by_check` 的**逐项等值断言**，外加对每项检查命中页面集合
+  的**逐项等值断言**（`_pages(check) == {...}`），并额外断言三个脚手架文件名不出现在任何 finding
+  里。测试现在能因两个方向变红：真实缺陷漏检（命中集合变小），或脚手架假发现回潮（命中集合混入
+  `SCHEMA.md`/`index.md`/`log.md`）。
+- **破坏性反证 5 组，每组先确认注入命中 1 处源码位置、再看红、复原后 `git diff` 清零**：撤销
+  `orphans`/`frontmatter`/`index` 三处排除，各自单独复现原 bug（`by_check` 依次 orphans 2→4、
+  frontmatter 1→3、index 1→2，均由脚手架假发现回潮触发）；把 `links` 检查改成同一条发现重复写入
+  两遍（1→2——这一回归正是旧的 `>= 1` 断言**无法**察觉的，证明把下界收紧成上界确有必要，而不是
+  多此一举）；把 `orphans` 的排除条件故意写宽、连带排掉一个真实孤儿页，复现"漏检真实缺陷"方向
+  （2→1）。五组均先红后绿，复原后两个改动文件的 `git diff` 均为空。
+- 测试是否能因这个 bug 失败：**能**——上述 5 组反证里，前 3 组直接对应本次修复要防的那个 bug
+  （脚手架假发现回潮），Test 14 现在会因此变红。
+
+### Fixed — 第二个缺陷：`_windows_safe_rmtree`（测试工具自身）在 POSIX 上自我下毒
+
+`tests/run_smoke.py` 的 `_windows_safe_rmtree`（`:157`，sync/session/spec/mcp 等几乎所有分支的
+fixture 清场都在用它）是从经典的 Windows-only 处方原样搬来的：`onerror` 里先
+`os.chmod(p, stat.S_IWRITE)`，再原样重放 `func(p)`。这条处方在 Windows 上成立，搬到 POSIX 上是
+两处独立的坑，且第二处会把第一处的后果焊死、永久化：
+
+- **`os.chmod(p, stat.S_IWRITE)` 覆盖整个 mode，而不是叠加。** `stat.S_IWRITE == 0o200`（仅
+  owner 可写）；对一个**目录**这么做，等于把 r/x 一并剥掉——不是"清掉只读"，而是把目录改得比出
+  问题前更难进入/罗列。也就是自我下毒：处理器亲手把目标改造成它正要修复的那种 `d-w-------`
+  终态，此后**任何一次**再对同一路径调用 `_windows_safe_rmtree` 都会在同一处再次失败，且永远
+  好不了。
+- **`func(p)` 在 POSIX 上会崩给一个不提权限、只字不提根因的异常。** POSIX（Linux/macOS）走
+  `shutil.rmtree` 的 fd-based 实现（`_rmtree_safe_fd`），它在打不开某个子目录用于下探时，回调的
+  是 `onerror(os.open, fullname, exc_info)`；`os.open` 真实签名是
+  `os.open(name, flags, dir_fd=...)`，`func(p)` 只传了一个参数，触发
+  `TypeError: open() missing required argument 'flags' (pos 2)`——`except OSError` 接不住
+  `TypeError`，于是这个 `TypeError` 逃出 `_onerror`，炸穿整个 `rmtree` 调用乃至整个测试进程。
+- **实测影响**：干净树上跑通（269 `ok`，exit 0）；一旦某个目录（本仓库实测是
+  `tests/_sync/_bootstrap`）被这条处方碰过一次、卡在 `d-w-------`，此后**每一次**
+  `run_smoke.py` 调用都会在同一断言点炸掉，只剩 **70/269** `ok` 就以 exit 1 中止——且因为下毒是
+  永久性的，光重跑不会自愈，必须手工清掉那个目录才能恢复。触发这一状态所需的具体时序/竞态未
+  精确定位（不同运行环境下"第几次调用会先撞上原始的 `PermissionError`"会变，但处理器本身的
+  两处缺陷与触发时序无关，是确定性的、可独立复现的）。
+
+**修法**：`os.chmod` 改成把 owner 的 rwx 位**并入现有 mode**（`os.stat(p).st_mode |
+stat.S_IRWXU`），而不是整体覆盖——两个平台上都只会新增权限，不会减少（Windows 的 `os.chmod`
+只看 mode 里有没有写位来决定是否清只读属性，多带的位不影响它）。重试不再盲目回放 `func(p)`：
+`shutil.rmtree` 的 `onerror` 是"处理完就翻页"的回调，从不会在 `_onerror` 返回后重放原来那个
+失败的调用，所以就算把 `os.open` 的参数补全、真的拿到了 `dirfd`，也没有用——那个 fd 会被直接
+丢弃，什么也没删掉（修复过程中先落地过这个半成品，靠新增的回归测试断言"目录被真正删除"而不是
+仅凭"没抛异常"才抓住）。现在的处理器改为按 `p` 当前的真实类型决定怎么收尾：非符号链接的目录→
+递归调用 `_sh.rmtree(p, onerror=_onerror)`（同一个处理器自举，任意深度的嵌套下毒都能被同一份
+逻辑收拾）；否则 `os.unlink(p)`。这样就不再需要关心 shutil 内部这次传来的到底是
+`os.scandir`/`os.lstat`/`os.open`/`os.rmdir`/`os.unlink` 里的哪一个；外层 `try` 同时接住
+`OSError` 与 `TypeError` 兜底。刻意不用 3.12 才有的 `onexc`（本机 `python3` 是 pyenv 3.9.4，
+`onexc` 在 rmtree 里根本不是合法关键字）。
+
+### Changed（测试，第二个缺陷）
+
+- 新增 **Test 66**（`T-rmtree-selfpoison-1`）：直接构造一个 mode `0o200`、内含一个文件的目录，
+  对其父目录调用 `_windows_safe_rmtree`，断言**不抛异常且目录被真正删除**。刻意不依赖"哪一次
+  运行恰好先撞上原始触发条件"——那与时序/状态相关、无法稳定复现；处理器要能从这个终态确定性地
+  恢复，不管它是怎么走到这个终态的。测试自身用 `try/finally` 包裹：`finally` 里的清理**不经过**
+  `_windows_safe_rmtree`（被测函数本身）、也不经过裸 `shutil.rmtree`（两者都可能被这条测试特意
+  造出来的权限卡住），而是独立走一遍"先把子树全部 `chmod` 回 owner-rwx、再删"——一条为
+  "不可重跑性"设的回归测试，不能自己也把树的可重跑性搭进去。
+- **破坏性反证，精确文本替换命中 1 处源码位置**（`_onerror` 的完整函数体在文件中只定义一次）：
+  把 `_onerror` 换回原始处方（`os.chmod(p, stat.S_IWRITE)` + `func(p)`）→ Test 66 在
+  `_windows_safe_rmtree(poison_root)` 处原样重现 `TypeError: open() missing required argument
+  'flags' (pos 2)`，`ok` 数停在 **269**、**exit 1**（前 65 个 Test 段全绿，第 66 个是唯一炸的，
+  与实测影响里描述的"卡在同一断言点"一致）；测试自身的 `finally` 清理在这次崩溃里仍正常跑完，
+  崩溃后未在树里留下任何 `d-w-------` 目录。用崩溃前保存的备份逐字节复原（`sha256` 校验前后
+  一致）后重跑转绿，**270 `ok`、exit 0**。
+- 干净树上连续三次运行 `python3 tests/run_smoke.py`（两次运行之间不做任何清场），三次结果
+  完全一致：**270 `ok`、exit 0**——这正是原缺陷会累积状态、隔几次运行就炸的那种连续调用场景，
+  也是"可证伪的可重跑性"要证明的东西。
+
+### 完整测试
+
+`python tests/run_smoke.py`：**82 个 Test 段、270 条 `ok`、0 FAIL**（在第一个缺陷已有的 81 段/
+269 条基础上新增 Test 66）；干净树连续三次运行，三次都是 270/exit 0。
+`python tests/run_smoke_ci.py`、`scripts/build_skill_md.py --check`、
+`tests/run_dreaming_eval.py --fixture market_research --gate`、
+`plugin/schema/wiki-schema.json` JSON 校验、`compileall` 这几项是第一个缺陷（wiki-lint）验证时
+跑过的，第二个缺陷的改动只触及 `tests/run_smoke.py` 内部一个测试专用的清场工具函数，未与这几项
+重复逐一复核；第二个缺陷单独的验证依据是上面的干净树三连跑与破坏性反证。
+
 ## [2.16.2] — 2026-08-03 — LICENSE 内容守卫
 
 kata's license does not change — it was already MIT, and its `LICENSE` already
